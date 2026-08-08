@@ -1,0 +1,98 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    ports:
+      - "${MOSQUITTO1_HOST_PORT:-1883}:1883"
+    volumes:
+      - ${MOSQUITTO1_CONFIG_DIR:-~/mosquitto/config}:/mosquitto/config
+      - ${MOSQUITTO1_DATA_DIR:-~/mosquitto/data}:/mosquitto/data
+      - ${MOSQUITTO1_LOG_DIR:-~/mosquitto/log}:/mosquitto/log
+
+  mosquitto2:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto2
+    ports:
+      - "${MOSQUITTO2_HOST_PORT:-1884}:1883"
+    volumes:
+      - ${MOSQUITTO2_CONFIG_DIR:-~/mosquitto/config2}:/mosquitto/config
+      - ${MOSQUITTO2_DATA_DIR:-~/mosquitto/data2}:/mosquitto/data
+      - ${MOSQUITTO2_LOG_DIR:-~/mosquitto/log2}:/mosquitto/log
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    ports:
+      - "${INFLUXDB_HOST_PORT:-8086}:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_USERNAME:-admin}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD:?INFLUXDB_PASSWORD must be set}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG:-monitoring-org}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET:-broker-metrics}
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN:?INFLUXDB_TOKEN must be set}
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+
+  # Internal only now — no published port, no host networking. Only reachable
+  # by other containers on the compose network (as "agent"). The gateway is
+  # the sole external entry point; auth and rate limiting live there.
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: progressbox-agent
+    expose:
+      - "3000"
+    environment:
+      - SMTP_USERNAME=${SMTP_USERNAME:?SMTP_USERNAME must be set}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:?SMTP_PASSWORD must be set}
+      - AGENT_HOSTNAME=${AGENT_HOSTNAME:-}
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - ./rules.toml:/app/rules.toml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - mosquitto
+      - mosquitto2
+      - influxdb
+
+  # New — external-facing. Owns API-key auth and rate limiting (moved off
+  # the agent) and proxies /api/v1/* to the agent over the compose network.
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: progressbox-gateway
+    ports:
+      - "${GATEWAY_HOST_PORT:-3000}:3000"
+    environment:
+      - AGENT_URL=http://agent:3000
+      - API_KEY=${API_KEY:?API_KEY must be set}
+      - RATE_LIMIT_PER_SECOND=${RATE_LIMIT_PER_SECOND:-10}
+      - RATE_LIMIT_BURST=${RATE_LIMIT_BURST:-20}
+    depends_on:
+      - agent
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: grafana
+    ports:
+      - "${GRAFANA_HOST_PORT:-3001}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:?INFLUXDB_TOKEN must be set}
+      - INFLUXDB_ORG=${INFLUXDB_ORG:-monitoring-org}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-broker-metrics}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - influxdb
+
+volumes:
+  influxdb-data:
+  grafana-data:

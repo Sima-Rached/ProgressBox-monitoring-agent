@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["common", "agent", "gateway"]
+
+# Versions pinned once here so agent and gateway can't silently drift apart
+# on a shared dependency (e.g. axum, serde) — each member inherits via
+# `<crate>.workspace = true` in its own Cargo.toml.
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4.45"
+influxdb2 = "0.5"
