@@ -2,7 +2,9 @@
 url = "http://influxdb:8086"
 org = "monitoring-org"
 bucket = "broker-metrics"
-token = "token"
+# token intentionally not here — comes from INFLUXDB_TOKEN env var,
+# same value docker-compose.yml uses to init InfluxDB. See .env.
+
 
 [intervals]
 mqtt_scrape_secs = 2
@@ -20,12 +22,6 @@ id = "broker-2"
 mqtt_host = "mosquitto2"
 mqtt_port = 1883
 container_name = "mosquitto2"
-
-[[alert_rules]]
-metric = "cpu_percent"
-operator = ">"
-threshold = 0.01
-cooldown_secs = 30
 
 [email]
 smtp_host = "smtp.gmail.com"

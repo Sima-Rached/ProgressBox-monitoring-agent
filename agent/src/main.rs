@@ -44,8 +44,10 @@ async fn main() {
     println!("Loaded {} alert rule(s) from '{}'", initial_rules.len(), rules_path);
 
     let state: SharedState = Arc::new(DashMap::new());
-    let docker = Docker::connect_with_local_defaults()
-        .expect("failed to connect to Docker");
+    let docker_host = std::env::var("DOCKER_HOST")
+        .unwrap_or_else(|_| "tcp://docker-proxy:2375".to_string());
+    let docker = Docker::connect_with_http(&docker_host, 120, bollard::API_DEFAULT_VERSION)
+        .expect("failed to connect to Docker via docker-proxy");
 
     let mut handles = vec![];
 

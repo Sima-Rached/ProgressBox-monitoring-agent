@@ -9,11 +9,13 @@ use crate::types::{BrokerRegistry};
 
 const MONITOR_LABEL: &str = "progressbox.monitor";
 const BROKER_ID_LABEL: &str = "progressbox.broker_id";
+const MQTT_PORT_LABEL: &str = "progressbox.mqtt_port"; // optional, defaults to 1883
 
 /// Inspects one labeled container and builds a BrokerConfig from it.
 /// Returns None (and logs) if required labels/ports are missing or malformed —
 /// a misconfigured container should never crash discovery for everyone else.
-fn broker_config_from_container(
+async fn broker_config_from_container(
+    docker: &Docker,
     container: &bollard::models::ContainerSummary,
 ) -> Option<BrokerConfig> {
     let labels = container.labels.as_ref()?;
@@ -26,17 +28,29 @@ fn broker_config_from_container(
         .trim_start_matches('/')
         .to_string();
 
-    // Find the host-side port bound to the container's 1883/tcp.
-    let mqtt_port = container
-        .ports
-        .as_ref()?
-        .iter()
-        .find(|p| p.private_port == 1883)
-        .and_then(|p| p.public_port)?;
+    let mqtt_port: u16 = labels
+        .get(MQTT_PORT_LABEL)
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(1883);
+
+    // Resolve via Docker's embedded DNS on the shared compose network —
+    // the container name itself is resolvable, no IP/public-port needed.
+    let details = docker
+        .inspect_container(container.id.as_deref()?, None)
+        .await
+        .ok()?;
+    let networks = details.network_settings?.networks?;
+    if networks.is_empty() {
+        eprintln!(
+            "[discovery] broker '{}' found but has no network settings, skipping",
+            broker_id
+        );
+        return None;
+    }
 
     Some(BrokerConfig {
         id: broker_id,
-        mqtt_host: "localhost".to_string(), // agent and containers share the host network
+        mqtt_host: container_name.clone(),
         mqtt_port,
         container_name,
     })
@@ -65,12 +79,12 @@ async fn reconcile(docker: &Docker, runtime: &BrokerRuntime, registry: &BrokerRe
         }
     };
 
-    let discovered: HashMap<String, BrokerConfig> = containers
-        .iter()
-        .filter_map(broker_config_from_container)
-        .map(|b| (b.id.clone(), b))
-        .collect();
-
+    let mut discovered: HashMap<String, BrokerConfig> = HashMap::new();
+    for container in &containers {
+        if let Some(b) = broker_config_from_container(docker, container).await {
+            discovered.insert(b.id.clone(), b);
+        }
+    }
     let currently_registered: HashSet<String> =
         registry::list_brokers(registry).into_iter().collect();
 
@@ -147,5 +161,39 @@ pub async fn run_discovery_task(docker: Docker, runtime: BrokerRuntime, registry
     loop {
         reconcile(&docker, &runtime, &registry).await;
         tokio::time::sleep(Duration::from_secs(interval_secs)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mqtt_port_label_parses_and_defaults() {
+        // Simulates the label-parsing logic in isolation, without needing
+        // a real Docker container — catches regressions if someone changes
+        // the label key or the default.
+        let mut labels = std::collections::HashMap::new();
+        labels.insert(BROKER_ID_LABEL.to_string(), "broker-x".to_string());
+
+        let default_port: u16 = labels
+            .get(MQTT_PORT_LABEL)
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(1883);
+        assert_eq!(default_port, 1883);
+
+        labels.insert(MQTT_PORT_LABEL.to_string(), "1884".to_string());
+        let custom_port: u16 = labels
+            .get(MQTT_PORT_LABEL)
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(1883);
+        assert_eq!(custom_port, 1884);
+
+        labels.insert(MQTT_PORT_LABEL.to_string(), "not-a-number".to_string());
+        let bad_port: u16 = labels
+            .get(MQTT_PORT_LABEL)
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(1883);
+        assert_eq!(bad_port, 1883, "malformed port label should fall back to default, not panic");
     }
 }

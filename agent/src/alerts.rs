@@ -132,9 +132,19 @@ pub async fn run_alert_task(
                         }
                     };
 
-                    match mailer.send(&email) {
-                        Ok(_)  => println!("[ALERT] email sent to {}", recipient),
-                        Err(e) => eprintln!("[ALERT] email send failed to {}: {:?}", recipient, e),
+                    let mailer_clone = mailer.clone();
+                    let recipient_clone = recipient.clone();
+                    let send_result = tokio::task::spawn_blocking(move || {
+                        mailer_clone.send(&email)
+                    })
+                    .await;
+
+                    match send_result {
+                        Ok(Ok(_))  => println!("[ALERT] email sent to {}", recipient_clone),
+                        Ok(Err(e)) => eprintln!("[ALERT] email send failed to {}: {:?}", recipient_clone, e),
+                        Err(join_err) => eprintln!(
+                            "[ALERT] email send task panicked for {}: {:?}", recipient_clone, join_err
+                        ),
                     }
                 }
             }

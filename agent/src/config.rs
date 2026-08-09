@@ -10,12 +10,20 @@ pub struct Config {
     // alert_rules removed — now live in rules.toml, loaded via RulesConfig::load()
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct InfluxConfig {
     pub url: String,
     pub org: String,
     pub bucket: String,
-    pub token: String,
+    pub token: String,// from INFLUXDB_TOKEN env var — never in config.toml
+}
+// Intermediate struct config.toml deserializes into — no token field,
+// same pattern as EmailConfigRaw below.
+#[derive(Debug, Deserialize)]
+struct InfluxConfigRaw {
+    url: String,
+    org: String,
+    bucket: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -145,7 +153,7 @@ impl RulesConfig {
 // Intermediate top-level struct for config.toml — alert_rules no longer here.
 #[derive(Debug, Deserialize)]
 struct ConfigRaw {
-    influxdb: InfluxConfig,
+    influxdb: InfluxConfigRaw,
     intervals: IntervalsConfig,
     brokers: Vec<BrokerConfig>,
     email: EmailConfigRaw,
@@ -159,14 +167,21 @@ impl Config {
         let raw_cfg: ConfigRaw = toml::from_str(&raw)
             .map_err(|e| format!("invalid config in '{}': {}", path, e))?;
 
-        // Read credentials from env — fail fast if missing.
+        // Read credentials/secrets from env — fail fast if missing.
         let username = std::env::var("SMTP_USERNAME")
             .map_err(|_| "missing env var SMTP_USERNAME".to_string())?;
         let password = std::env::var("SMTP_PASSWORD")
             .map_err(|_| "missing env var SMTP_PASSWORD".to_string())?;
+        let influx_token = std::env::var("INFLUXDB_TOKEN")
+            .map_err(|_| "missing env var INFLUXDB_TOKEN".to_string())?;
 
         Ok(Config {
-            influxdb: raw_cfg.influxdb,
+            influxdb: InfluxConfig {
+                url: raw_cfg.influxdb.url,
+                org: raw_cfg.influxdb.org,
+                bucket: raw_cfg.influxdb.bucket,
+                token: influx_token,
+            },
             intervals: raw_cfg.intervals,
             brokers: raw_cfg.brokers,
             email: EmailConfig {

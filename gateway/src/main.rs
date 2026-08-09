@@ -68,10 +68,10 @@ async fn main() {
 
     let app = Router::new()
         .nest("/api/v1", protected_routes(state.clone()))
+        .layer(middleware::from_fn_with_state(state.clone(), require_api_key))
         .layer(GovernorLayer {
             config: governor_conf,
-        })
-        .layer(middleware::from_fn_with_state(state.clone(), require_api_key));
+        });
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
