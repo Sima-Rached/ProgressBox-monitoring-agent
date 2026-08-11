@@ -1,8 +1,7 @@
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    middleware,
-    response::Response,
+    response::IntoResponse,
     routing::{delete, get, post, patch},
     Json, Router,
 };
@@ -10,7 +9,6 @@ use chrono::Utc;
 use std::sync::Arc;
 use dashmap::DashMap;
 use influxdb2::Client as InfluxClient;
-use axum::response::IntoResponse;
 use axum::extract::Query;
 
 use crate::db::{self, DbConn};
@@ -60,21 +58,30 @@ pub async fn get_alerts(
 pub async fn patch_alert_acknowledge(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> (StatusCode, Json<serde_json::Value>) {
+) -> impl IntoResponse {
     match db::acknowledge_alert(&state.db, &id) {
         Ok(true) => {
             if let Some(alert) = state.alerts.lock().unwrap().iter_mut().find(|a| a.id == id) {
                 alert.acknowledged = true;
             }
-            (StatusCode::OK, Json(serde_json::json!({ "id": id, "acknowledged": true })))
+            (
+                StatusCode::OK,
+                Json(AckResponse { id, acknowledged: true }),
+            )
+                .into_response()
         }
         Ok(false) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": format!("no alert with id {}", id) })),
-        ),
+        )
+            .into_response(),
         Err(e) => {
             eprintln!("[ack] db error: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "db error" })))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "db error" })),
+            )
+                .into_response()
         }
     }
 }
@@ -138,7 +145,7 @@ pub struct HistoryQuery {
 pub async fn get_metrics_history(
     State(state): State<Arc<AppState>>,
     Query(q): Query<HistoryQuery>,
-) -> (StatusCode, Json<serde_json::Value>) {
+) -> impl IntoResponse {
     if chrono::DateTime::parse_from_rfc3339(&q.from).is_err() {
         return (
             StatusCode::BAD_REQUEST,
@@ -148,7 +155,8 @@ pub async fn get_metrics_history(
                     q.from
                 )
             })),
-        );
+        )
+            .into_response();
     }
 
     let to = q.to.clone().unwrap_or_else(|| Utc::now().to_rfc3339());
@@ -158,7 +166,8 @@ pub async fn get_metrics_history(
             Json(serde_json::json!({
                 "error": format!("invalid 'to' timestamp '{}': must be ISO 8601 / RFC 3339", to)
             })),
-        );
+        )
+            .into_response();
     }
 
     let limit  = q.limit.unwrap_or(100).min(1000);
@@ -168,8 +177,8 @@ pub async fn get_metrics_history(
     // directly into the query string. Validate it against the same
     // character set as BrokerConfig::id before interpolating.
     // TODO: replace with InfluxDB parameterised-query support once stable.
-    let bucket     = &state.influx_bucket;
-    let broker_id  = &q.broker_id;
+    let bucket    = &state.influx_bucket;
+    let broker_id = &q.broker_id;
 
     let flux = format!(
         r#"from(bucket: "{bucket}")
@@ -194,16 +203,17 @@ pub async fn get_metrics_history(
             let count = results.len();
             (
                 StatusCode::OK,
-                Json(serde_json::json!({
-                    "broker_id": q.broker_id,
-                    "from":      q.from,
-                    "to":        to,
-                    "limit":     limit,
-                    "offset":    offset,
-                    "count":     count,
-                    "results":   results,
-                })),
+                Json(HistoryEnvelope {
+                    broker_id: q.broker_id.clone(),
+                    from: q.from.clone(),
+                    to,
+                    limit,
+                    offset,
+                    count,
+                    results,
+                }),
             )
+                .into_response()
         }
         Err(e) => {
             eprintln!("[history] InfluxDB query error: {:?}", e);
@@ -211,10 +221,10 @@ pub async fn get_metrics_history(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": "InfluxDB query failed" })),
             )
+                .into_response()
         }
     }
 }
-
 // ── GET /brokers ──────────────────────────────────────────────────────────────
 
 pub async fn get_brokers(State(state): State<Arc<AppState>>) -> Json<BrokersEnvelope> {

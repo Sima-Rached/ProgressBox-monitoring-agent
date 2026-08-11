@@ -27,6 +27,5 @@ num-traits         = "0.2"
 tower              = "0.5.3"
 dotenvy            = "0.15"
 # tower_governor removed — rate limiting is now the gateway's responsibility
-# Cargo.toml
 rusqlite = { version = "0.31", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }

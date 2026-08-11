@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 use crate::config::AlertRule;
-pub use crate::db::DbConn;
 
 // FiredAlert moved to `common` — import it from there everywhere it's needed.
 // Re-export here so existing internal code (alerts.rs) that does
