@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FiredAlert {
-    pub id: u64,
+    pub id: String,
     pub broker_id: String,
     pub metric: String,
     pub operator: String,
@@ -36,7 +36,7 @@ pub struct AlertsEnvelope {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AckResponse {
-    pub id: u64,
+    pub id: String,
     pub acknowledged: bool,
 }
 

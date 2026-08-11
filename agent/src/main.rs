@@ -12,6 +12,7 @@ mod mqtt;
 mod types;
 mod registry;
 mod discovery;
+mod db;
 
 use config::{Config, RulesConfig};
 use http::{build_router, AppState};
@@ -31,6 +32,15 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    let db_path = std::env::var("ALERTS_DB_PATH").unwrap_or_else(|_| "alerts.db".to_string());
+    let db_conn = db::init_db(&db_path).expect("failed to init alerts DB");
+
+    let rehydrated = db::load_all_alerts(&db_conn).unwrap_or_else(|e| {
+        eprintln!("[startup] failed to load alert history, starting empty: {:?}", e);
+        Vec::new()
+    });
+    println!("Rehydrated {} alert(s) from '{}'", rehydrated.len(), db_path);
 
     let rules_path = std::env::var("RULES_PATH")
         .unwrap_or_else(|_| "rules.toml".to_string());
@@ -92,7 +102,7 @@ async fn main() {
 
     let rules_store: RulesStore  = Arc::new(RwLock::new(initial_rules));
     let cooldowns:   CooldownState = Arc::new(DashMap::new());
-    let alert_store: AlertStore  = Arc::new(Mutex::new(Vec::new()));
+    let alert_store: AlertStore  = Arc::new(Mutex::new(rehydrated));
 
     let app_state = Arc::new(AppState {
         metrics:              state.clone(),
@@ -100,6 +110,7 @@ async fn main() {
         registry:             broker_registry,
         runtime:              broker_runtime,
         alerts:               alert_store.clone(),
+        db:                   db_conn.clone(),
         rules_store:          rules_store.clone(),
         cooldowns:            cooldowns.clone(),
         rules_path,
@@ -130,6 +141,7 @@ async fn main() {
             rules_store,
             email_cfg,
             alert_eval_interval,
+            db_conn,
         ).await;
     }));
 

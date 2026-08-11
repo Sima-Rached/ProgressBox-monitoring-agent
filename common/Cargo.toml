@@ -10,3 +10,4 @@ chrono.workspace = true
 influxdb2 = { workspace = true }
 influxdb2-structmap = "0.2.0"
 num-traits = "0.2"
+uuid = { version = "1", features = ["v4"] }

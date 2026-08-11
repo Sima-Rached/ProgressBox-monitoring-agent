@@ -1,0 +1,7 @@
+target/
+**/target/
+.git/
+.gitignore
+.env
+*.log
+grafana/dashboards/*.json.bak

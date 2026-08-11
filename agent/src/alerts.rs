@@ -4,7 +4,9 @@ use lettre::{
     SmtpTransport, Transport,
 };
 use std::time::{Duration, Instant};
+use uuid::Uuid;
 
+use crate::db::{insert_alert, DbConn};
 use crate::config::EmailConfig;
 use crate::types::{AlertStore, CooldownState, FiredAlert, RulesStore, SharedState};
 
@@ -15,6 +17,7 @@ pub async fn run_alert_task(
     rules_store: RulesStore,      // ← replaces the cloned Vec<AlertRule>
     email_cfg: EmailConfig,
     eval_interval_secs: u64,
+    db_conn: DbConn,
 ) {
     let creds = Credentials::new(email_cfg.username.clone(), email_cfg.password.clone());
     let mailer = SmtpTransport::starttls_relay(&email_cfg.smtp_host)
@@ -23,7 +26,6 @@ pub async fn run_alert_task(
         .credentials(creds)
         .build();
 
-    let mut next_id: u64 = 0;
 
     loop {
         tokio::time::sleep(Duration::from_secs(eval_interval_secs)).await;
@@ -77,7 +79,7 @@ pub async fn run_alert_task(
                 cooldowns.insert(cooldown_key, now);
 
                 let alert = FiredAlert {
-                    id: next_id,
+                    id: Uuid::new_v4().to_string(),
                     broker_id: broker_id.clone(),
                     metric: rule.metric.clone(),
                     operator: rule.operator.clone(),
@@ -86,13 +88,19 @@ pub async fn run_alert_task(
                     fired_at: Utc::now().timestamp(),
                     acknowledged: false,
                 };
-                next_id += 1;
 
                 eprintln!(
                     "[ALERT] broker={} metric={} value={:.2} {} {} (id={})",
                     alert.broker_id, alert.metric, alert.value,
                     alert.operator, alert.threshold, alert.id
                 );
+
+                if let Err(e) = insert_alert(&db_conn, &alert) {
+                eprintln!("[ALERT] failed to persist alert {}: {:?}", alert.id, e);
+                // decide: continue anyway (in-memory only, degraded) or `continue;` to drop it.
+                // Given alerts feed email + audit trail, degraded-but-visible is usually
+                // better than silently dropping — so we fall through.
+                }
 
                 alert_store.lock().unwrap().push(alert.clone());
 

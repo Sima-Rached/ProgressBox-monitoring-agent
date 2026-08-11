@@ -13,6 +13,7 @@ use influxdb2::Client as InfluxClient;
 use axum::response::IntoResponse;
 use axum::extract::Query;
 
+use crate::db::{self, DbConn};
 use crate::config::{BrokerConfig, RulesConfig};
 use crate::registry::{self, BrokerRuntime};
 use crate::types::{BrokerMetrics, BrokerRegistry, CooldownState, RulesStore};
@@ -58,22 +59,23 @@ pub async fn get_alerts(
 
 pub async fn patch_alert_acknowledge(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<u64>,
+    Path(id): Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
-    let mut store = state.alerts.lock().unwrap();
-
-    match store.iter_mut().find(|a| a.id == id) {
-        Some(alert) => {
-            alert.acknowledged = true;
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({ "id": alert.id, "acknowledged": alert.acknowledged })),
-            )
+    match db::acknowledge_alert(&state.db, &id) {
+        Ok(true) => {
+            if let Some(alert) = state.alerts.lock().unwrap().iter_mut().find(|a| a.id == id) {
+                alert.acknowledged = true;
+            }
+            (StatusCode::OK, Json(serde_json::json!({ "id": id, "acknowledged": true })))
         }
-        None => (
+        Ok(false) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": format!("no alert with id {}", id) })),
         ),
+        Err(e) => {
+            eprintln!("[ack] db error: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "db error" })))
+        }
     }
 }
 
@@ -313,6 +315,7 @@ pub struct AppState {
     pub rules_path:           String,
     pub influx_client:        Arc<InfluxClient>,
     pub influx_bucket:        String,
+    pub db: DbConn,
     // api_key / rate_limit_* removed — auth and rate limiting are now the
     // gateway's responsibility. The agent is internal-only.
 }
