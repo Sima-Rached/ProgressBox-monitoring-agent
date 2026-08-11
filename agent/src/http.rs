@@ -11,7 +11,7 @@ use dashmap::DashMap;
 use influxdb2::Client as InfluxClient;
 use axum::extract::Query;
 
-use crate::db::{self, DbConn};
+use crate::db::{acknowledge_alert, DbConn};
 use crate::config::{BrokerConfig, RulesConfig};
 use crate::registry::{self, BrokerRuntime};
 use crate::types::{BrokerMetrics, BrokerRegistry, CooldownState, RulesStore};
@@ -59,16 +59,28 @@ pub async fn patch_alert_acknowledge(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match db::acknowledge_alert(&state.db, &id) {
+    let db = state.db.clone();
+    let id_clone = id.clone();
+    let result = tokio::task::spawn_blocking(move || acknowledge_alert(&db, &id_clone)).await;
+
+    let outcome = match result {
+        Ok(inner) => inner,
+        Err(join_err) => {
+            eprintln!("[ack] task panicked: {:?}", join_err);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "internal error" })),
+            )
+                .into_response();
+        }
+    };
+
+    match outcome {
         Ok(true) => {
             if let Some(alert) = state.alerts.lock().unwrap().iter_mut().find(|a| a.id == id) {
                 alert.acknowledged = true;
             }
-            (
-                StatusCode::OK,
-                Json(AckResponse { id, acknowledged: true }),
-            )
-                .into_response()
+            (StatusCode::OK, Json(AckResponse { id, acknowledged: true })).into_response()
         }
         Ok(false) => (
             StatusCode::NOT_FOUND,
@@ -77,11 +89,7 @@ pub async fn patch_alert_acknowledge(
             .into_response(),
         Err(e) => {
             eprintln!("[ack] db error: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "db error" })),
-            )
-                .into_response()
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "db error" }))).into_response()
         }
     }
 }
@@ -158,6 +166,14 @@ pub async fn get_metrics_history(
         )
             .into_response();
     }
+
+    if !crate::config::is_valid_id(&q.broker_id) {
+    return (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": "invalid broker_id" })),
+    )
+        .into_response();
+}
 
     let to = q.to.clone().unwrap_or_else(|| Utc::now().to_rfc3339());
     if chrono::DateTime::parse_from_rfc3339(&to).is_err() {
@@ -246,6 +262,13 @@ pub async fn post_broker(
             Json(serde_json::json!({ "error": "broker id must not be empty" })),
         );
     }
+
+    if !crate::config::is_valid_id(&broker.id) {
+    return (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": "broker id must be alphanumeric, '_' or '-' only" })),
+    );
+}
 
     registry::spawn_broker(broker.clone(), &state.runtime, &state.registry);
 

@@ -91,6 +91,9 @@ pub const VALID_METRICS: &[&str] = &[
 
 pub const VALID_OPERATORS: &[&str] = &[">", "<", "=="];
 
+pub fn is_valid_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
 impl AlertRule {
     pub fn validate(&self, index: usize) -> Result<(), String> {
         if !VALID_METRICS.contains(&self.metric.as_str()) {
@@ -175,6 +178,7 @@ impl Config {
         let influx_token = std::env::var("INFLUXDB_TOKEN")
             .map_err(|_| "missing env var INFLUXDB_TOKEN".to_string())?;
 
+        
         Ok(Config {
             influxdb: InfluxConfig {
                 url: raw_cfg.influxdb.url,

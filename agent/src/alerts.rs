@@ -95,11 +95,18 @@ pub async fn run_alert_task(
                     alert.operator, alert.threshold, alert.id
                 );
 
-                if let Err(e) = insert_alert(&db_conn, &alert) {
-                eprintln!("[ALERT] failed to persist alert {}: {:?}", alert.id, e);
-                // decide: continue anyway (in-memory only, degraded) or `continue;` to drop it.
-                // Given alerts feed email + audit trail, degraded-but-visible is usually
-                // better than silently dropping — so we fall through.
+                let db_conn_clone = db_conn.clone();
+                let alert_clone = alert.clone();
+                let insert_result = tokio::task::spawn_blocking(move || {
+                    insert_alert(&db_conn_clone, &alert_clone)
+                })
+                .await;
+
+                match insert_result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => eprintln!("[ALERT] failed to persist alert {}: {:?}", alert.id, e),
+                    Err(join_err) => eprintln!("[ALERT] persist task panicked for {}: {:?}", alert.id, join_err),
+
                 }
 
                 alert_store.lock().unwrap().push(alert.clone());

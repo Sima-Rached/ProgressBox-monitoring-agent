@@ -6,6 +6,7 @@ pub type DbConn = Arc<Mutex<Connection>>;
 
 pub fn init_db(path: &str) -> rusqlite::Result<DbConn> {
     let conn = Connection::open(path)?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS alerts (
             id           TEXT PRIMARY KEY,

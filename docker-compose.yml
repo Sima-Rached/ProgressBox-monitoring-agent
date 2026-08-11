@@ -49,9 +49,11 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD:?SMTP_PASSWORD must be set}
       - AGENT_HOSTNAME=${AGENT_HOSTNAME:-}
       - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:?INFLUXDB_TOKEN must be set}
+      - ALERTS_DB_PATH=/app/data/alerts.db
     volumes:
       - ./config.toml:/app/config.toml:ro
       - ./rules.toml:/app/rules.toml:ro
+      - agent-alerts-data:/app/data
     depends_on:
       - mosquitto
       - mosquitto2
@@ -121,3 +123,4 @@ services:
 volumes:
   influxdb-data:
   grafana-data:
+  agent-alerts-data:
