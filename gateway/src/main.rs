@@ -6,9 +6,10 @@
 //   - reverse-proxying     /api/v1/* -> the internal agent
 //
 // It intentionally does NOT expose the agent's internal management routes
-// (POST /brokers, DELETE /brokers/:id, POST /reload) — only the read-mostly
-// surface a dashboard/client needs. Add more routes to `protected_routes()`
-// below if the agent grows more public-facing endpoints.
+// (POST /brokers, DELETE /brokers/:id) — only the read-mostly surface a
+// dashboard/client needs, plus POST /reload (needed for external rule
+// reloads). Add more routes to `protected_routes()` below if the agent
+// grows more public-facing endpoints.
 
 use axum::{
     body::{Body, Bytes},
@@ -16,7 +17,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, patch},
+    routing::{get, patch, post},
     Router,
 };
 use std::{net::SocketAddr, sync::Arc};
@@ -86,8 +87,10 @@ async fn main() {
     .expect("gateway server error");
 }
 
-// Only the agent's read-mostly / dashboard-facing routes are exposed here.
-// /reload and the broker-mutation routes stay agent-internal.
+// The agent's read-mostly / dashboard-facing routes, plus /reload (an
+// admin action, but needed for external rule-reload calls via curl/CI —
+// still gated behind the same API key + rate limiter as everything else).
+// POST /brokers and DELETE /brokers/:id stay agent-internal.
 fn protected_routes(state: Arc<GatewayState>) -> Router {
     Router::new()
         .route("/metrics", get(proxy))
@@ -95,6 +98,7 @@ fn protected_routes(state: Arc<GatewayState>) -> Router {
         .route("/brokers", get(proxy))
         .route("/alerts", get(proxy))
         .route("/alerts/{id}/acknowledge", patch(proxy))
+        .route("/reload", post(proxy))
         .with_state(state)
 }
 
