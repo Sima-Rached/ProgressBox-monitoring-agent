@@ -14,8 +14,7 @@
 
 [[alert_rules]]
 metric = "cpu_percent"
-operator = ">"
-threshold = 80.0
+operator = "0.01
 cooldown_secs = 300
 
 [[alert_rules]]

@@ -1,0 +1,22 @@
+apiVersion: 1
+
+datasources:
+  - name: Infinity
+    uid: infinity-gateway
+    type: yesoreyeram-infinity-datasource
+    access: proxy
+    isDefault: false
+    editable: false
+    jsonData:
+      # Locks the plugin to the gateway only — a dashboard editor can't
+      # point a query anywhere else.
+      allowedHosts:
+        - ${GATEWAY_URL}
+      # Native API-key auth: every query made against this datasource
+      # automatically sends the header — panels never need to embed
+      # or reference the key themselves.
+      auth_method: apiKey
+      apiKeyKey: x-api-key
+      apiKeyType: header
+    secureJsonData:
+      apiKeyValue: ${GATEWAY_API_KEY}
