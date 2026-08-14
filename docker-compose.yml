@@ -117,7 +117,7 @@ services:
       # Infinity datasource, not InfluxDB — needs its own creds.
       - GATEWAY_URL=http://gateway:3000
       - GATEWAY_API_KEY=${API_KEY:?API_KEY must be set}
-      - GF_INSTALL_PLUGINS=yesoreyeram-infinity-datasource
+      - GF_INSTALL_PLUGINS=yesoreyeram-infinity-datasource 3.7.1
       - GF_PLUGINS_PREINSTALL_DISABLED=false
     volumes:
       - grafana-data:/var/lib/grafana

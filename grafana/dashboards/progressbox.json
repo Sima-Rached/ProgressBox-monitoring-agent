@@ -97,7 +97,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "from(bucket: \"${INFLUXDB_BUCKET}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\")\n  |> filter(fn: (r) => r.broker_id == \"${broker_id}\")\n  |> filter(fn: (r) => r._field == \"messages_received\" or r._field == \"messages_sent\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> yield(name: \"throughput\")",
+          "query": "from(bucket: \"${INFLUXDB_BUCKET}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\")\n  |> filter(fn: (r) => r.broker_id =~ /^${broker_id:regex}$/)\n  |> filter(fn: (r) => r._field == \"messages_received\" or r._field == \"messages_sent\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> yield(name: \"throughput\")",
           "refId": "A"
         }
       ],
@@ -346,6 +346,10 @@
           "type": "json",
           "source": "url",
           "url": "http://gateway:3000/api/v1/alerts",
+          "url_options": {
+            "method": "GET",
+            "data": ""
+          },
           "root_selector": "alerts",
           "columns": [
             {
@@ -425,6 +429,12 @@
         "hide": 2,
         "name": "DS_INFLUXDB",
         "query": "influxdb",
+        "type": "datasource"
+      },
+      {
+        "hide": 2,
+        "name": "DS_INFINITY",
+        "query": "yesoreyeram-infinity-datasource",
         "type": "datasource"
       },
       {
