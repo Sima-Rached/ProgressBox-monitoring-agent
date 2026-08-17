@@ -22,6 +22,10 @@ use axum::{
 };
 use std::{net::SocketAddr, sync::Arc};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
+
+mod docs;
 
 #[derive(Clone)]
 struct GatewayState {
@@ -74,11 +78,17 @@ async fn main() {
             config: governor_conf,
         });
 
+    
+    let app = app.merge(
+        SwaggerUi::new("/docs").url("/api-docs/openapi.json", docs::ApiDoc::openapi())
+        );
+
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
         .expect("failed to bind gateway HTTP server to port 3000");
     println!("Gateway HTTP listening on http://0.0.0.0:3000 (external, auth + rate-limited)");
 
+   
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

@@ -11,12 +11,13 @@
 //! never touches them directly — it only ever sees agent HTTP responses.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 // ── Fired alert record ──────────────────────────────────────────────────────
 // Moved from agent/src/types.rs — used in AlertsEnvelope, which the gateway
 // may proxy or re-serve.
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FiredAlert {
     pub id: String,
     pub broker_id: String,
@@ -28,13 +29,13 @@ pub struct FiredAlert {
     pub acknowledged: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AlertsEnvelope {
     pub alerts: Vec<FiredAlert>,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AckResponse {
     pub id: String,
     pub acknowledged: bool,
@@ -45,7 +46,7 @@ pub struct AckResponse {
 // gateway-fronted). Keeping one definition means the two endpoints can never
 // silently diverge in what fields they expose.
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema )]
 pub struct BrokerMetricsResponse {
     pub broker_id: String,
     pub clients_connected: Option<u64>,
@@ -64,19 +65,19 @@ pub struct BrokerMetricsResponse {
     pub online: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MetricsEnvelope {
     pub brokers: Vec<BrokerMetricsResponse>,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BrokersEnvelope {
     pub brokers: Vec<String>,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ErrorResponse {
     pub error: String,
 }
@@ -88,7 +89,7 @@ pub struct ErrorResponse {
 // BrokerMetricsHistory (persisted) does not — that gap still exists and is
 // unrelated to this scaffolding step. Flagging again so it isn't lost.
 
-#[derive(Debug, Clone, Serialize, Deserialize, influxdb2::FromDataPoint)]
+#[derive(Debug, Clone, Serialize, Deserialize, influxdb2::FromDataPoint, ToSchema)]
 pub struct BrokerMetricsHistory {
     #[serde(rename = "broker_id")]
     pub broker_id: String,
@@ -118,7 +119,7 @@ impl Default for BrokerMetricsHistory {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HistoryEnvelope {
     pub broker_id: String,
     pub from: String,
