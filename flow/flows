@@ -1,0 +1,266 @@
+============================================================
+SETUP -- constructing agent + gateway stacks (main.rs's job)
+============================================================
+[agent/main.rs] Config::load("config.toml") -- parsed intervals, brokers, email
+[agent/main.rs] RulesConfig::load("rules.toml") -- parsed + validated alert_rules
+[agent/main.rs] db::init_db("alerts.db") -- opened SQLite, WAL mode enabled
+[agent/main.rs] db::load_all_alerts() -- rehydrated 12 past alerts into memory
+[agent/main.rs] instantiated SharedState: Arc<DashMap<broker_id, BrokerMetrics>>
+[agent/main.rs] Docker::connect_with_http(docker_host) -- connected via docker-proxy
+[agent/main.rs] for broker in config.brokers -> registry::spawn_broker(broker)
+                 -- spawns run_mqtt_task() + run_docker_task() per broker
+[agent/main.rs] tokio::spawn(influx::spawn_influx_writer())
+[agent/main.rs] tokio::spawn(discovery::run_discovery_task(interval=15s))
+[agent/main.rs] tokio::spawn(alerts::run_alert_task())
+[agent/main.rs] axum::serve() on 0.0.0.0:3000 -- internal only, no auth
+
+[gateway/main.rs] read API_KEY, RATE_LIMIT_PER_SECOND, RATE_LIMIT_BURST from env
+[gateway/main.rs] built GovernorConfigBuilder -- rate limiter ready
+[gateway/main.rs] Router: /api/v1/* -> require_api_key middleware -> proxy()
+[gateway/main.rs] axum::serve() on 0.0.0.0:3000 -- published to host
+
+============================================================
+FLOW 1 -- Container is discovered and starts being monitored automatically
+============================================================
+[docker] operator runs a new mosquitto container with labels:
+         progressbox.monitor=true
+         progressbox.broker_id=broker-3
+
+[discovery.rs | run_discovery_task()] tick (every 15s)
+[discovery.rs | reconcile()] docker.list_containers(filter: monitor label)
+                 -- found 3 labeled containers now (was 2)
+[discovery.rs | broker_config_from_container()] read labels off broker-3's container
+                 -- broker_id="broker-3", resolved container_name via Docker DNS
+                 -- mqtt_port label absent -> defaulted to 1883
+[discovery.rs] diffed against registry::list_brokers() -- broker-3 NOT registered
+[discovery.rs] registry::is_suppressed("broker-3") -- false, not manually deleted
+[discovery.rs] "found new broker 'broker-3', registering"
+[registry.rs | spawn_broker()] stop_broker_internal() first -- no-op (nothing to replace)
+[registry.rs] tokio::spawn(mqtt::run_mqtt_task(broker-3, ...))
+[registry.rs] tokio::spawn(docker::run_docker_task(broker-3, ...))
+[registry.rs] registry.insert("broker-3", [handle1, handle2])
+[discovery.rs] mark_discovered("broker-3") -- tracked so future removal is allowed
+
+[mqtt.rs | run_mqtt_task(broker-3)] MQTT connects, subscribes $SYS/#
+[docker.rs | run_docker_task(broker-3)] first docker.stats() call succeeds
+    -> broker-3 now appears in GET /metrics with zero operator intervention
+
+============================================================
+FLOW 2 -- Container disappears, discovery cleans it up automatically
+============================================================
+[docker] operator stops/removes broker-3's container
+
+[discovery.rs | reconcile()] tick -- broker-3 no longer in list_containers() result
+[discovery.rs] currently_registered still contains "broker-3"
+[discovery.rs] was_previously_discovered("broker-3") -- true (marked in Flow 1)
+[discovery.rs] "broker 'broker-3' no longer present, deregistering"
+[registry.rs | stop_broker_no_suppress()] -- NOT suppressed, so it can
+                 come back later and be treated as genuinely new
+[registry.rs | stop_broker_internal()] handles.abort() x2 -- both tasks killed
+                 state.remove("broker-3") -- entry wiped from SharedState
+[discovery.rs] unmark_discovered("broker-3")
+
+[http.rs | get_metrics()] next poll -- broker-3 is simply absent from the
+                 response, not shown as "stale" or "offline"
+    -> confirms the removal was clean: no ghost entries, no leaked tasks
+
+============================================================
+FLOW 3 -- Operator manually deletes a broker, discovery respects it
+============================================================
+[operator] DELETE /api/v1/brokers/broker-2  (via gateway, x-api-key required)
+
+[gateway/main.rs] require_api_key -- PASS
+[gateway/main.rs] proxy() -- forwarded to http://agent:3000/brokers/broker-2
+                 -- NOTE: this route only exists internally; the gateway
+                    does not expose broker mutation routes by design, so
+                    in practice this call has to originate inside the
+                    docker network, not from the public internet
+
+[http.rs | delete_broker()] registry::stop_broker("broker-2", ...)
+[registry.rs | stop_broker()] stop_broker_internal() -- tasks aborted, state cleared
+[registry.rs] suppress("broker-2") -- added to the process-global suppressed set
+[http.rs] returned 204 No Content
+
+--- 15 seconds later, discovery runs again ---
+[discovery.rs | reconcile()] broker-2's container is STILL running and
+                 STILL labeled progressbox.monitor=true
+[discovery.rs] broker-2 discovered but NOT in currently_registered
+[discovery.rs] registry::is_suppressed("broker-2") -- TRUE
+[discovery.rs] "broker 'broker-2' is suppressed (manually deleted), not re-registering"
+    -> the manual delete sticks, even though the label never went away
+
+--- later still, the container is finally removed ---
+[discovery.rs | reconcile()] broker-2 no longer in discovered set at all
+[discovery.rs] "suppressed broker 'broker-2' no longer labeled/present,
+                 clearing suppression"
+[registry.rs | unsuppress()] removed from suppressed set
+    -> if a NEW container reuses id "broker-2" later, it will be treated
+       as brand new, not blocked by the old manual delete
+
+============================================================
+FLOW 4 -- Alert fires, is rate-gated by cooldown, then acknowledged
+============================================================
+[alerts.rs | run_alert_task()] tick (every mqtt_scrape_secs)
+[alerts.rs] rules_store.read().await.clone() -- snapshot of current rules
+[alerts.rs] for broker-1, rule{ metric: mem_usage_mb, op: ">", threshold: 512.0 }
+                 SharedState value = 640.2 -- breached = true
+[alerts.rs] cooldown_key = "broker-1:mem_usage_mb"
+                 cooldowns.get(key) -- none found -- NOT suppressed
+                 cooldowns.insert(key, Instant::now())
+[alerts.rs] FiredAlert{ id: uuid_a, broker_id: "broker-1", value: 640.2, ... }
+[db.rs | insert_alert()] spawn_blocking -- persisted to alerts.db
+[alerts.rs] alert_store.lock().push(alert) -- also kept in memory
+[alerts.rs] lettre::Message built, spawn_blocking(mailer.send()) -- SMTP sent
+[agent stdout] "[ALERT] email sent to ops@example.com"
+
+--- 10s later, still breached ---
+[alerts.rs] tick -- breached = true again
+                 cooldowns.get(key) -- last_fired 10s ago < cooldown_secs(30)
+                 SUPPRESSED -- no second DB row, no second email
+
+--- operator acknowledges it via the API ---
+[operator] curl -X PATCH /api/v1/alerts/uuid_a/acknowledge
+[gateway/main.rs] require_api_key -- PASS -> proxy() -> agent
+[http.rs | patch_alert_acknowledge()] spawn_blocking(db::acknowledge_alert(uuid_a))
+[db.rs] UPDATE alerts SET acknowledged = 1 WHERE id = uuid_a -- 1 row updated
+[http.rs] found alert in in-memory alert_store, flipped .acknowledged = true too
+                 -- keeps SQLite and the in-memory copy in sync
+[http.rs] returned 200 { id: uuid_a, acknowledged: true }
+
+--- 20s later, still breached, cooldown now expired ---
+[alerts.rs] tick -- breached = true, cooldown(30s) has elapsed since last_fired
+                 NOT suppressed -- fires again as a NEW alert (new uuid)
+    -> acknowledging one firing does not silence future breaches; the
+       cooldown, not the ack, is what controls repeat frequency
+============================================================
+DONE
+============================================================
+
+============================================================
+FLOW 5 -- Startup fails fast on bad config / missing secrets
+============================================================
+[agent/main.rs] dotenvy::dotenv().ok() -- loaded .env (best-effort, ignored if missing)
+[agent/main.rs] CONFIG_PATH env var not set -- defaulted to "config.toml"
+[config.rs | Config::load("config.toml")] fs::read_to_string() -- file found
+[config.rs] toml::from_str::<ConfigRaw>() -- parsed successfully
+                 -- structure is valid, but secrets still need to come from env
+
+[config.rs | Config::load()] std::env::var("SMTP_USERNAME") -- MISSING
+                 -- operator forgot to set it (or .env wasn't mounted in
+                    this deployment, e.g. a fresh clone without secrets)
+[config.rs] returned Err("missing env var SMTP_USERNAME")
+
+[agent/main.rs] match Config::load(...) { Err(e) => ... }
+[agent stdout] "Config error: missing env var SMTP_USERNAME"
+[agent/main.rs] std::process::exit(1)
+    -> process terminates BEFORE any task is spawned, before the HTTP
+       server binds, before Docker is even touched -- nothing partially
+       starts in a broken state
+
+--- separately: rules.toml has an invalid rule ---
+[agent/main.rs] (assume SMTP_USERNAME now set, config loads fine)
+[config.rs | RulesConfig::load("rules.toml")] toml::from_str::<RulesFile>() -- parsed
+[config.rs] for (i, rule) in parsed.alert_rules.iter().enumerate():
+                 rule.validate(i) -- rule[1].metric = "cpu_usage" (typo)
+[config.rs | AlertRule::validate()] "cpu_usage" not in VALID_METRICS
+[config.rs] returned Err("alert_rules[1]: unknown metric 'cpu_usage' (valid: ...)")
+
+[agent/main.rs] match RulesConfig::load(...) { Err(e) => ... }
+[agent stdout] "Rules error: alert_rules[1]: unknown metric 'cpu_usage' (valid: ...)"
+[agent/main.rs] std::process::exit(1)
+    -> same fail-fast behavior at STARTUP time; contrast this with FLOW 2
+       from before (POST /reload), which rejects a bad file at RUNTIME
+       and keeps the OLD rules active instead of crashing -- startup has
+       no "old rules" to fall back to, so it has to refuse to boot instead
+
+--- Docker connection failure (not config-related) ---
+[agent/main.rs] (config + rules now valid)
+[agent/main.rs] Docker::connect_with_http(docker_host, 120, API_DEFAULT_VERSION)
+                 -- docker-proxy container not yet up / unreachable
+[agent/main.rs] .expect("failed to connect to Docker via docker-proxy")
+[agent stdout] thread 'main' panicked at 'failed to connect to Docker via
+                docker-proxy: ...'
+    -> unlike the config/rules errors, this is an unrecoverable .expect(),
+       not a handled Result -- worth flagging as a place where a graceful
+       error message (like the config path) would be a nicer failure mode
+       than a raw panic; depends on docker-proxy's depends_on ordering in
+       docker-compose.yml actually being respected at container start
+============================================================
+DONE
+============================================================
+============================================================
+FLOW 6 -- Client queries historical metrics (Flux query against InfluxDB)
+============================================================
+[operator] curl "/api/v1/metrics/history?broker_id=broker-1&from=2026-08-10T00:00:00Z"
+                 -H "x-api-key: ..."
+
+--- gateway side ---
+[gateway/main.rs] require_api_key -- key matches: PASS
+[gateway/main.rs] GovernorLayer -- under rate limit: PASS
+[gateway/main.rs] proxy() -- OriginalUri = "/api/v1/metrics/history?broker_id=..."
+                 forwarded_path = strip_prefix("/api/v1") -> "/metrics/history?..."
+                 target = "http://agent:3000/metrics/history?broker_id=..."
+[gateway/main.rs] reqwest::Client -- GET request sent, method/query/body preserved
+
+--- agent side: validation before touching InfluxDB ---
+[http.rs | get_metrics_history()] Query<HistoryQuery> extracted
+                 -- broker_id="broker-1", from="2026-08-10T00:00:00Z", to=None
+[http.rs] chrono::DateTime::parse_from_rfc3339(&q.from) -- valid RFC3339: PASS
+[http.rs] config::is_valid_id(&q.broker_id) -- "broker-1" matches
+                 alphanumeric/_/- charset: PASS
+                 -- this check exists specifically because broker_id gets
+                    interpolated directly into the Flux query string below;
+                    it's the mitigation for that injection risk noted in
+                    the code comments
+[http.rs] q.to is None -> defaulted to Utc::now().to_rfc3339()
+[http.rs] chrono::DateTime::parse_from_rfc3339(&to) -- valid: PASS
+[http.rs] limit = q.limit.unwrap_or(100).min(1000) -- no limit given -> 100
+[http.rs] offset = q.offset.unwrap_or(0) -- 0
+
+--- building and running the Flux query ---
+[http.rs] format!() -- built Flux string:
+    from(bucket: "broker-metrics")
+      |> range(start: 2026-08-10T00:00:00Z, stop: 2026-08-17T14:02:00Z)
+      |> filter(fn: (r) => r._measurement == "broker_metrics")
+      |> filter(fn: (r) => r.broker_id == "broker-1")
+      |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+      |> sort(columns: ["_time"], desc: false)
+      |> limit(n: 100, offset: 0)
+
+[http.rs] influxdb2::models::Query::new(flux)
+[http.rs] state.influx_client.query::<BrokerMetricsHistory>(Some(query))
+[influxdb2 crate] HTTP POST to InfluxDB's /api/v2/query endpoint
+[influxdb] executed Flux script -- 47 rows matched the range + filters
+[influxdb2 crate] deserialized rows into Vec<BrokerMetricsHistory> via
+                 the #[derive(FromDataPoint)] on that struct
+                 -- NOTE: this struct does NOT have net_rx_bytes,
+                    net_tx_bytes, mqtt_online, docker_online fields --
+                    those exist on the LIVE BrokerMetricsResponse but were
+                    never written by influx.rs, so history queries can
+                    never return them even though the API shape suggests
+                    they might
+
+[http.rs] Ok(results) branch -- count = 47
+[http.rs] built HistoryEnvelope{ broker_id, from, to, limit, offset, count, results }
+[http.rs] returned 200 OK with JSON body
+
+--- back through the gateway ---
+[gateway/main.rs | proxy()] upstream response received, status=200
+                 content_type copied from agent's response
+                 bytes streamed back unmodified to the original caller
+[operator] receives HistoryEnvelope{ count: 47, results: [...] } as JSON
+    -> 47 historical points delivered, scoped to exactly one broker and
+       one time range, never touching the raw InfluxDB port directly
+       (InfluxDB itself is never published to the host -- only reachable
+       from the agent, same internal-only pattern as the agent itself)
+
+--- contrast: what happens if broker_id fails validation ---
+[operator] curl ".../metrics/history?broker_id=broker-1;DROP+MEASUREMENT&from=..."
+[http.rs | get_metrics_history()] config::is_valid_id() -- semicolon not in
+                 allowed charset: FAIL
+[http.rs] returned 400 Bad Request { error: "invalid broker_id" }
+    -> query never reaches the format!() call at all -- the malformed
+       broker_id is rejected before it could be interpolated into Flux
+============================================================
+DONE
+============================================================

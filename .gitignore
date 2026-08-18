@@ -4,3 +4,7 @@
 *.db
 *.db-wal
 *.db-shm
+/flow/svg
+/scripts
+.dockerignore
+.envrc
