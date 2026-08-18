@@ -17,8 +17,8 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 
 WORKDIR /app
 COPY --from=builder /app/target/release/agent ./agent
-COPY config.toml ./config.toml
-COPY rules.toml ./rules.toml
+COPY config.toml ./config/config.toml
+COPY rules.toml ./config/rules.toml
 
 # Internal only — not published to the host anymore, the gateway is the
 # external entry point. Kept EXPOSE for documentation / inter-container use.

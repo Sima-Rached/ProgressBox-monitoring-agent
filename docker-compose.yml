@@ -49,11 +49,13 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD:?SMTP_PASSWORD must be set}
       - AGENT_HOSTNAME=${AGENT_HOSTNAME:-}
       - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:?INFLUXDB_TOKEN must be set}
-      - ALERTS_DB_PATH=/app/data/alerts.db
+      - ALERTS_DB_PATH=/app/config/alerts.db
+      - CONFIG_PATH=/app/config/config.toml
+      - RULES_PATH=/app/config/rules.toml
     volumes:
-      - ./config.toml:/app/config.toml:ro
-      - ./rules.toml:/app/rules.toml:ro
-      - agent-alerts-data:/app/data
+      - ./config.toml:/app/config/config.toml:ro
+      - ./rules.toml:/app/config/rules.toml:ro
+      - agent-alerts-data:/app/config
     depends_on:
       - mosquitto
       - mosquitto2
