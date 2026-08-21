@@ -38,9 +38,7 @@ services:
   # by other containers on the compose network (as "agent"). The gateway is
   # the sole external entry point; auth and rate limiting live there.
   agent:
-    build:
-      context: .
-      dockerfile: agent/Dockerfile
+    image: ${DOCKERHUB_USER:-<dockerhub-user>}/progressbox-agent:${IMAGE_TAG:-latest}
     container_name: progressbox-agent
     expose:
       - "3000"
@@ -89,9 +87,7 @@ services:
   # New — external-facing. Owns API-key auth and rate limiting (moved off
   # the agent) and proxies /api/v1/* to the agent over the compose network.
   gateway:
-    build:
-      context: .
-      dockerfile: gateway/Dockerfile
+    image: ${DOCKERHUB_USER:-<dockerhub-user>}/progressbox-gateway:${IMAGE_TAG:-latest}
     container_name: progressbox-gateway
     ports:
       - "${GATEWAY_HOST_PORT:-3000}:3000"
