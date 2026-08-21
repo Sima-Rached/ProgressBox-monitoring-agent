@@ -22,7 +22,7 @@ use crate::types::AlertStore;
 use common::{
     AlertsEnvelope, AckResponse,
     BrokerMetricsResponse, MetricsEnvelope, BrokersEnvelope,
-    BrokerMetricsHistory, HistoryEnvelope,
+    BrokerMetricsHistory, HistoryEnvelope,ThroughputResponse, ConnectionsResponse,
 };
 
 // ── GET /alerts ───────────────────────────────────────────────────────────────
@@ -135,6 +135,29 @@ pub async fn get_metrics(
     brokers.sort_by(|a, b| a.broker_id.cmp(&b.broker_id));
     let count = brokers.len();
     Json(MetricsEnvelope { brokers, count })
+}
+
+// ── GET /metrics/throughput & /metrics/connections ──────────────────────────────────────────────────────
+
+pub async fn get_throughput(State(state): State<Arc<AppState>>) -> Json<Vec<ThroughputResponse>> {
+    let data = state.metrics.iter()
+        .map(|entry| ThroughputResponse {
+            broker_id: entry.key().clone(),
+            messages_sent: entry.value().messages_sent,
+            messages_received: entry.value().messages_received,
+        })
+        .collect();
+    Json(data)
+}
+
+pub async fn get_connections(State(state): State<Arc<AppState>>) -> Json<Vec<ConnectionsResponse>> {
+    let data = state.metrics.iter()
+        .map(|entry| ConnectionsResponse {
+            broker_id: entry.key().clone(),
+            clients_connected: entry.value().clients_connected,
+        })
+        .collect();
+    Json(data)
 }
 
 // ── GET /metrics/history ──────────────────────────────────────────────────────
@@ -361,12 +384,14 @@ pub struct AppState {
 
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/metrics",                      get(get_metrics))
-        .route("/metrics/history",              get(get_metrics_history))
-        .route("/brokers",                      get(get_brokers).post(post_broker))
-        .route("/brokers/{id}",                 delete(delete_broker))
-        .route("/alerts",                       get(get_alerts))
-        .route("/alerts/{id}/acknowledge",      patch(patch_alert_acknowledge))
-        .route("/reload",                       post(post_reload))
+        .route("/metrics",             get(get_metrics))
+        .route("/metrics/history",     get(get_metrics_history))
+        .route("/metrics/throughput",  get(get_throughput))
+        .route("/metrics/connections", get(get_connections))
+        .route("/brokers",             get(get_brokers).post(post_broker))
+        .route("/brokers/{id}",        delete(delete_broker))
+        .route("/alerts",              get(get_alerts))
+        .route("/alerts/{id}/acknowledge", patch(patch_alert_acknowledge))
+        .route("/reload",              post(post_reload))
         .with_state(state)
 }

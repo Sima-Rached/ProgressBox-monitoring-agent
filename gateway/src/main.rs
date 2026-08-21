@@ -105,6 +105,8 @@ fn protected_routes(state: Arc<GatewayState>) -> Router {
     Router::new()
         .route("/metrics", get(proxy))
         .route("/metrics/history", get(proxy))
+        .route("/metrics/throughput", get(proxy))
+        .route("/metrics/connections", get(proxy))
         .route("/brokers", get(proxy))
         .route("/alerts", get(proxy))
         .route("/alerts/{id}/acknowledge", patch(proxy))

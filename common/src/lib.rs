@@ -65,6 +65,19 @@ pub struct BrokerMetricsResponse {
     pub online: bool,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct ThroughputResponse {
+    pub broker_id: String,
+    pub messages_sent: Option<u64>,
+    pub messages_received: Option<u64>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct ConnectionsResponse {
+    pub broker_id: String,
+    pub clients_connected: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MetricsEnvelope {
     pub brokers: Vec<BrokerMetricsResponse>,
