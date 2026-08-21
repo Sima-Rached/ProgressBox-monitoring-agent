@@ -118,7 +118,7 @@ services:
       # Alerts panel (B4-05) talks to the gateway's REST API via the
       # Infinity datasource, not InfluxDB — needs its own creds.
       - GATEWAY_URL=http://gateway:3000
-      - GATEWAY_API_KEY=${API_KEY:?API_KEY must be set}
+      - API_KEY=${API_KEY:?API_KEY must be set}
       - GF_INSTALL_PLUGINS=yesoreyeram-infinity-datasource 3.7.1
       - GF_PLUGINS_PREINSTALL_DISABLED=false
     volumes:
