@@ -16,6 +16,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Stage config files at repo root
+        # Dockerfiles do `COPY config.toml ./config/config.toml` and
+        # `COPY rules.toml ./config/rules.toml`, expecting both at the
+        # build context root — but they live under config/ in the repo.
+        # Locally this is handled by the "cp config/*.toml ./" step in
+        # the Quick Start; CI needs the same copy before building.
+        run: |
+          cp config/config.toml ./config.toml
+          cp config/rules.toml ./rules.toml
+    
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
