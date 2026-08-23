@@ -17,7 +17,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, patch, post},
+    routing::{get, patch, post, delete},
     Router,
 };
 use std::{net::SocketAddr, sync::Arc};
@@ -108,6 +108,8 @@ fn protected_routes(state: Arc<GatewayState>) -> Router {
         .route("/metrics/throughput", get(proxy))
         .route("/metrics/connections", get(proxy))
         .route("/brokers", get(proxy))
+        .route("/brokers", post(proxy))
+        .route("/brokers/{id}", delete(proxy))
         .route("/alerts", get(proxy))
         .route("/alerts/{id}/acknowledge", patch(proxy))
         .route("/reload", post(proxy))
