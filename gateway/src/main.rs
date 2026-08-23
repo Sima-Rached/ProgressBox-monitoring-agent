@@ -140,6 +140,7 @@ async fn proxy(
     State(state): State<Arc<GatewayState>>,
     method: Method,
     OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     let path_and_query = uri
@@ -149,9 +150,18 @@ async fn proxy(
     let forwarded_path = path_and_query.strip_prefix("/api/v1").unwrap_or(path_and_query);
     let target = format!("{}{}", state.agent_base_url, forwarded_path);
 
+    // Forward the client's headers to the agent (Content-Type in particular —
+    // without it axum's Json extractor on the agent side 415s every POST/PATCH).
+    // Strip hop-by-hop headers that reqwest/the transport manage themselves.
+    let mut forwarded_headers = headers;
+    for h in ["host", "content-length", "connection"] {
+        forwarded_headers.remove(h);
+    }
+
     let upstream = state
         .http
         .request(method, &target)
+        .headers(forwarded_headers)
         .body(body.to_vec())
         .send()
         .await;

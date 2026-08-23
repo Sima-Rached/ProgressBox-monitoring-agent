@@ -27,4 +27,4 @@ container_name = "mosquitto2"
 smtp_host = "smtp.gmail.com"
 smtp_port = 587
 from = "your-source@domaine.com"
-to = ["your-destination@domaine.com"]
+to = ["rachedsima25@gmail.com"]
