@@ -51,9 +51,9 @@ services:
       - CONFIG_PATH=/app/config/config.toml
       - RULES_PATH=/app/config/rules.toml
     volumes:
-      - ./config.toml:/app/config/config.toml:ro
-      - ./rules.toml:/app/config/rules.toml:ro
-      - agent-alerts-data:/app/config
+      - ./config/config.toml:/app/config/config.toml:ro
+      - ./config/rules.toml:/app/config/rules.toml:ro
+      - agent-alerts-data:/app/config/state/alerts.db
     depends_on:
       - mosquitto
       - mosquitto2

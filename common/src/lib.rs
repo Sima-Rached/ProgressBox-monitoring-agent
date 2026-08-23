@@ -65,14 +65,14 @@ pub struct BrokerMetricsResponse {
     pub online: bool,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, ToSchema)]
 pub struct ThroughputResponse {
     pub broker_id: String,
     pub messages_sent: Option<u64>,
     pub messages_received: Option<u64>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, ToSchema)]
 pub struct ConnectionsResponse {
     pub broker_id: String,
     pub clients_connected: Option<u64>,

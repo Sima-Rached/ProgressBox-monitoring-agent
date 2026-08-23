@@ -1,6 +1,5 @@
-// gateway/src/docs.rs
 use utoipa::OpenApi;
-use common::{AlertsEnvelope, AckResponse, BrokersEnvelope, MetricsEnvelope, HistoryEnvelope, ErrorResponse};
+use common::{AckResponse, AlertsEnvelope, BrokersEnvelope, ConnectionsResponse, ErrorResponse, HistoryEnvelope, MetricsEnvelope, ThroughputResponse};
 
 /// Get live metrics for all brokers
 #[utoipa::path(
@@ -11,6 +10,39 @@ use common::{AlertsEnvelope, AckResponse, BrokersEnvelope, MetricsEnvelope, Hist
 )]
 #[allow(dead_code)]
 async fn docs_get_metrics() {}
+
+//GET metrics/connections
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/metrics/connections",
+    params(
+        ("broker_id" = String, Query, description = "Broker id"),
+    ),
+    responses(
+        (status = 200, description = "Connection metrics", body = ConnectionsResponse),
+        (status = 400, description = "Invalid broker_id ", body = ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+#[allow(dead_code)]
+async fn docs_get_metrics_connections() {}
+
+// GET /metrics/throughput 
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/throughput",
+    params(
+        ("broker_id" = String, Query, description = "Broker id"),
+    ),
+    responses(
+        (status = 200, description = "Throughput metric points", body = ThroughputResponse),
+        (status = 400, description = "Invalid broker_id", body = ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+#[allow(dead_code)]
+async fn docs_get_metrics_throughput() {}
+
 
 /// Get historical metrics for one broker
 #[utoipa::path(
