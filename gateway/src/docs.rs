@@ -73,6 +73,30 @@ async fn docs_get_metrics_history() {}
 #[allow(dead_code)]
 async fn docs_get_brokers() {}
 
+/// Post a broker
+#[utoipa::path(
+    post, path = "/api/v1/brokers",
+    responses(
+        (status = 200, body = BrokersEnvelope),
+    ),
+    security(("api_key" = []))
+)]
+#[allow(dead_code)]
+async fn docs_post_broker() {}
+
+/// delete a broker
+#[utoipa::path(
+    delete, path = "/api/v1/brokers/{id}",
+    params(("id" = String, Path, description = "Broker id")),
+    responses(
+        (status = 200, body = BrokersEnvelope),
+        (status = 404, description = "No broker with that id", body = ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+#[allow(dead_code)]
+async fn docs_delete_broker() {}
+
 /// List alerts, optionally filtered
 #[utoipa::path(
     get, path = "/api/v1/alerts",
@@ -120,6 +144,8 @@ async fn docs_post_reload() {}
         docs_get_metrics_throughput,
         docs_get_metrics_history,
         docs_get_brokers,
+        docs_post_broker,
+        docs_delete_broker,
         docs_get_alerts,
         docs_patch_alert_acknowledge,
         docs_post_reload,
