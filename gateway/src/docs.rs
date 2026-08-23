@@ -14,7 +14,7 @@ async fn docs_get_metrics() {}
 //GET metrics/connections
 #[utoipa::path(
     get,
-    path = "/api/v1/metrics/metrics/connections",
+    path = "/api/v1/metrics/connections",
     params(
         ("broker_id" = String, Query, description = "Broker id"),
     ),
@@ -116,6 +116,8 @@ async fn docs_post_reload() {}
 #[openapi(
     paths(
         docs_get_metrics,
+        docs_get_metrics_connections,
+        docs_get_metrics_throughput,
         docs_get_metrics_history,
         docs_get_brokers,
         docs_get_alerts,
@@ -124,7 +126,7 @@ async fn docs_post_reload() {}
     ),
     components(schemas(
         AlertsEnvelope, AckResponse, BrokersEnvelope,
-        MetricsEnvelope, HistoryEnvelope, ErrorResponse,
+        MetricsEnvelope, HistoryEnvelope, ErrorResponse,ConnectionsResponse, ThroughputResponse, 
     )),
     info(title = "ProgressBox API", version = "1.0.0", description = "Broker monitoring gateway API"),
     modifiers(&SecurityAddon),
