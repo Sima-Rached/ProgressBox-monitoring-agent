@@ -19,7 +19,9 @@ pub struct BrokerMetricsPoint {
     #[influxdb(tag)]
     pub broker_id: String,
     #[influxdb(tag)]
-    pub host: String,
+    pub agent_id: String,       // replaces host
+    #[influxdb(tag)]
+    pub broker_host: String,    // the broker's mqtt_host from BrokerConfig
     #[influxdb(field)]
     pub clients_connected: i64,
     #[influxdb(field)]
@@ -40,6 +42,7 @@ pub struct BrokerMetricsPoint {
 
 #[derive(Debug, Default, Clone)]
 pub struct BrokerMetrics {
+    pub broker_host: String,
     pub clients_connected: Option<u64>,
     pub messages_sent: Option<u64>,
     pub messages_received: Option<u64>,

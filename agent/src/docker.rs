@@ -44,6 +44,7 @@ pub async fn run_docker_task(
                 }
 
                 let mut entry = state.entry(broker.id.clone()).or_default();
+                entry.broker_host = broker.mqtt_host.clone(); 
                 entry.cpu_percent = Some(cpu_percent);
                 entry.mem_usage_mb = Some(mem_usage_mb);
                 entry.net_rx_bytes = Some(rx_bytes);
@@ -56,14 +57,18 @@ pub async fn run_docker_task(
                     broker.id, cpu_percent, mem_usage_mb, rx_bytes, tx_bytes
                 );
             }
-            Some(Err(e)) => {                                          // ← B1-07
-                eprintln!("[{}] Docker stats error: {:?}", broker.id, e);
-                state.entry(broker.id.clone()).or_default().docker_online = false; // ← B1-07
-            }
-            None => {                                                  // ← B1-07
-                eprintln!("[{}] Docker stats stream ended unexpectedly", broker.id);
-                state.entry(broker.id.clone()).or_default().docker_online = false; // ← B1-07
-            }
+            Some(Err(e)) => {
+            eprintln!("[{}] Docker stats error: {:?}", broker.id, e);
+            let mut entry = state.entry(broker.id.clone()).or_default();
+            entry.broker_host = broker.mqtt_host.clone();  // ← add
+            entry.docker_online = false;
+        }
+        None => {
+            eprintln!("[{}] Docker stats stream ended unexpectedly", broker.id);
+            let mut entry = state.entry(broker.id.clone()).or_default();
+            entry.broker_host = broker.mqtt_host.clone();  // ← add
+            entry.docker_online = false;
+        }
         }
 
         tokio::time::sleep(Duration::from_secs(scrape_interval_secs)).await;

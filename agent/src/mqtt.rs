@@ -7,9 +7,6 @@ use crate::types::SharedState;
 
 pub async fn run_mqtt_task(broker: BrokerConfig, state: SharedState, scrape_interval_secs: u64) {
     loop {
-        // Build a fresh client on every connection attempt.
-        // The old client/eventloop pair is dropped when we fall through to
-        // the sleep at the bottom, so there is no resource leak.
         let mut mqttoptions = MqttOptions::new(
             format!("cloud-monitoring-agent-{}", broker.id),
             broker.mqtt_host.clone(),
@@ -21,18 +18,20 @@ pub async fn run_mqtt_task(broker: BrokerConfig, state: SharedState, scrape_inte
 
         if let Err(e) = client.subscribe("$SYS/#", QoS::AtMostOnce).await {
             eprintln!("[{}] failed to subscribe to $SYS/#: {:?}", broker.id, e);
-            // Mark offline before sleeping — the subscribe itself failed,
-            // so we never had a working connection this attempt.       // ← B1-07
-            state.entry(broker.id.clone()).or_default().mqtt_online = false; // ← B1-07
+            let mut entry = state.entry(broker.id.clone()).or_default();  // ← expand
+            entry.broker_host = broker.mqtt_host.clone();                 // ← add
+            entry.mqtt_online = false;
             tokio::time::sleep(Duration::from_secs(scrape_interval_secs)).await;
-            continue; // restart the outer loop → rebuild client
+            continue;
         }
 
         println!("[{}] agent subscribed to $SYS/# on {}:{}", broker.id, broker.mqtt_host, broker.mqtt_port);
-        // Subscription confirmed — broker is reachable.               // ← B1-07
-        state.entry(broker.id.clone()).or_default().mqtt_online = true; // ← B1-07
+        {
+            let mut entry = state.entry(broker.id.clone()).or_default();  // ← expand
+            entry.broker_host = broker.mqtt_host.clone();                 // ← add
+            entry.mqtt_online = true;
+        }
 
-        // Inner poll loop — runs until the connection breaks.
         loop {
             match eventloop.poll().await {
                 Ok(Event::Incoming(Packet::Publish(publish))) => {
@@ -40,6 +39,7 @@ pub async fn run_mqtt_task(broker: BrokerConfig, state: SharedState, scrape_inte
                     let payload = String::from_utf8_lossy(&publish.payload);
 
                     let mut entry = state.entry(broker.id.clone()).or_default();
+                    entry.broker_host = broker.mqtt_host.clone();         // ← add
 
                     match topic {
                         "$SYS/broker/clients/connected" => {
@@ -66,10 +66,11 @@ pub async fn run_mqtt_task(broker: BrokerConfig, state: SharedState, scrape_inte
                 Ok(_) => {}
                 Err(e) => {
                     eprintln!("[{}] MQTT connection lost: {:?}", broker.id, e);
-                    // Mark offline immediately — within this scrape cycle. // ← B1-07
-                    state.entry(broker.id.clone()).or_default().mqtt_online = false; // ← B1-07
+                    let mut entry = state.entry(broker.id.clone()).or_default();  // ← expand
+                    entry.broker_host = broker.mqtt_host.clone();                 // ← add
+                    entry.mqtt_online = false;
                     tokio::time::sleep(Duration::from_secs(scrape_interval_secs)).await;
-                    break; // exit inner loop → outer loop rebuilds client
+                    break;
                 }
             }
         }

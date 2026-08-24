@@ -9,23 +9,13 @@ use crate::types::{BrokerMetricsPoint, SharedState};
 pub async fn spawn_influx_writer(state: SharedState, influx_cfg: InfluxConfig, write_interval_secs: u64) {
     let client = Client::new(influx_cfg.url, influx_cfg.org, influx_cfg.token);
 
-    // Resolve once at task startup — the hostname won't change while the
-    // agent is running, and failing loudly here is better than silently
-    // tagging every point with a wrong or empty host.
-    let host = std::env::var("AGENT_HOSTNAME")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| {
-            hostname::get()
-                .ok()
-                .and_then(|h| h.into_string().ok())
-                .unwrap_or_else(|| {
-                    eprintln!("[influx] warning: could not determine hostname, using 'unknown'");
-                    "unknown".to_string()
-                })
-        });
+    let agent_id = std::env::var("AGENT_ID")
+    .unwrap_or_else(|_| {
+        eprintln!("[influx] warning: AGENT_ID not set, using 'agent-unknown'");
+        "agent-unknown".to_string()
+    });
 
-    println!("[influx] tagging points with host='{}'", host);
+    println!("[influx] tagging points with agent_id='{}'", agent_id);
 
     loop {
         tokio::time::sleep(Duration::from_secs(write_interval_secs)).await;
@@ -35,8 +25,9 @@ pub async fn spawn_influx_writer(state: SharedState, influx_cfg: InfluxConfig, w
             .map(|entry| {
                 let (broker_id, m) = (entry.key().clone(), entry.value());
                 BrokerMetricsPoint {
-                    broker_id,
-                    host: host.clone(),
+                    broker_id: broker_id.clone(),
+                    agent_id: agent_id .clone(),
+                    broker_host: m.broker_host.clone(),
                     clients_connected: m.clients_connected.unwrap_or(0) as i64,
                     messages_sent: m.messages_sent.unwrap_or(0) as i64,
                     messages_received: m.messages_received.unwrap_or(0) as i64,
