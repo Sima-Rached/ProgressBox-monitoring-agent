@@ -380,7 +380,7 @@
             {
               "selector": "fired_at",
               "text": "Fired At",
-              "type": "timestamp_epoch"
+              "type": "timestamp_epoch_s"
             },
             {
               "selector": "acknowledged",
@@ -413,14 +413,14 @@
           "type": "influxdb",
           "uid": "${DS_INFLUXDB}"
         },
-        "definition": "from(bucket: \"broker-metrics\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\")\n  |> keep(columns: [\"broker_id\"])\n  |> distinct(column: \"broker_id\")\n  |> sort()",
+        "definition": "from(bucket: \"broker-metrics\")\n  |> range(start: -30s)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\")\n  |> keep(columns: [\"broker_id\"])\n  |> distinct(column: \"broker_id\")\n  |> sort()",
         "hide": 0,
         "includeAll": true,
         "label": "Broker",
         "multi": true,
         "name": "broker_id",
         "options": [],
-        "query": "from(bucket: \"broker-metrics\")\n  |> range(start: -1h)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\")\n  |> keep(columns: [\"broker_id\"])\n  |> distinct(column: \"broker_id\")\n  |> sort()",
+        "query": "from(bucket: \"broker-metrics\")\n  |> range(start: -30s)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\")\n  |> keep(columns: [\"broker_id\"])\n  |> distinct(column: \"broker_id\")\n  |> sort()",
         "refresh": 2,
         "sort": 1,
         "type": "query"
