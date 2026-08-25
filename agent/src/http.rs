@@ -189,7 +189,7 @@ pub async fn get_metrics_history(
         )
             .into_response();
     }
-
+ 
     if !crate::config::is_valid_id(&q.broker_id) {
     return (
         StatusCode::BAD_REQUEST,
@@ -197,7 +197,7 @@ pub async fn get_metrics_history(
     )
         .into_response();
 }
-
+ 
     let to = q.to.clone().unwrap_or_else(|| Utc::now().to_rfc3339());
     if chrono::DateTime::parse_from_rfc3339(&to).is_err() {
         return (
@@ -208,38 +208,53 @@ pub async fn get_metrics_history(
         )
             .into_response();
     }
-
+ 
     let limit  = q.limit.unwrap_or(100).min(1000);
     let offset = q.offset.unwrap_or(0);
-
+ 
     // Flux injection note (from prior review): broker_id is interpolated
     // directly into the query string. Validate it against the same
     // character set as BrokerConfig::id before interpolating.
     // TODO: replace with InfluxDB parameterised-query support once stable.
     let bucket    = &state.influx_bucket;
     let broker_id = &q.broker_id;
-
+ 
+    // NOTE: no `limit`/`offset` here anymore. Each InfluxDB row is one
+    // (timestamp, field) pair, not one timestamp — the influxdb2 client
+    // reassembles rows into one-timestamp-per-record structs client-side
+    // (see QueryResult::new). Applying limit/offset in Flux would cut off
+    // mid-timestamp and paginate over field-rows instead of data points,
+    // so we fetch the full range and paginate after reassembly instead.
     let flux = format!(
         r#"from(bucket: "{bucket}")
   |> range(start: {from}, stop: {to})
   |> filter(fn: (r) => r._measurement == "broker_metrics")
   |> filter(fn: (r) => r.broker_id == "{broker_id}")
-  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
-  |> sort(columns: ["_time"], desc: false)
-  |> limit(n: {limit}, offset: {offset})"#,
+  |> sort(columns: ["_time"], desc: false)"#,
         bucket    = bucket,
         from      = q.from,
         to        = to,
         broker_id = broker_id,
-        limit     = limit,
-        offset    = offset,
     );
-
+ 
     let query = influxdb2::models::Query::new(flux);
-
+ 
     match state.influx_client.query::<BrokerMetricsHistory>(Some(query)).await {
-        Ok(results) => {
-            let count = results.len();
+        Ok(mut all_results) => {
+            // Belt-and-suspenders: QueryResult::new groups by (tags, time)
+            // via a HashMap and relies on first-seen insertion order, which
+            // should already track the Flux sort — but re-sort explicitly
+            // here rather than depend on that being stable across client
+            // versions.
+            all_results.sort_by_key(|r| r.time);
+ 
+            let count = all_results.len();
+            let results: Vec<BrokerMetricsHistory> = all_results
+                .into_iter()
+                .skip(offset)
+                .take(limit)
+                .collect();
+ 
             (
                 StatusCode::OK,
                 Json(HistoryEnvelope {

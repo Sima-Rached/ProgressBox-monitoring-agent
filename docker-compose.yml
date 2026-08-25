@@ -45,7 +45,7 @@ services:
     environment:
       - SMTP_USERNAME=${SMTP_USERNAME:?SMTP_USERNAME must be set}
       - SMTP_PASSWORD=${SMTP_PASSWORD:?SMTP_PASSWORD must be set}
-      - AGENT_ID: "agent-prod-1"
+      - AGENT_ID=agent-prod-1
       - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:?INFLUXDB_TOKEN must be set}
       - ALERTS_DB_PATH=/app/config/alerts.db
       - CONFIG_PATH=/app/config/config.toml

@@ -21,7 +21,7 @@ cooldown_secs = 300
 [[alert_rules]]
 metric = "mem_usage_mb"
 operator = ">"
-threshold = 512.0
+threshold = 1.0
 cooldown_secs = 30
 
 [[alert_rules]]
